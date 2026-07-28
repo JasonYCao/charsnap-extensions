@@ -1,0 +1,36 @@
+// Zustand store: user preferences (counter tiers, default window size, display toggles)
+import { create } from 'zustand';
+import { DEFAULT_SETTINGS } from '../constants/defaults.js';
+
+export const useSettingsStore = create((set) => ({
+  ...DEFAULT_SETTINGS,
+
+  setCounterTiers:             (counterTiers)             => set({ counterTiers }),
+  setDefaultWindowWidth:       (defaultWindowWidth)       => set({ defaultWindowWidth }),
+  setDefaultWindowHeight:      (defaultWindowHeight)      => set({ defaultWindowHeight }),
+  setTieredCounterEnabled:     (tieredCounterEnabled)     => set({ tieredCounterEnabled }),
+  setHideSuggestionsByDefault: (hideSuggestionsByDefault) => set({ hideSuggestionsByDefault }),
+  setHideEntryStats:           (hideEntryStats)           => set({ hideEntryStats }),
+  setMarkPrivateEntries:       (markPrivateEntries)       => set({ markPrivateEntries }),
+  setTheme:                    (theme)                    => set({ theme }),
+  setCustomColors:             (customColors)             => set({ customColors }),
+  setUiScale:                  (uiScale)                  => set({ uiScale }),
+  setReduceMotion:             (reduceMotion)             => set({ reduceMotion }),
+  setKeybindings:              (keybindings)              => set({ keybindings }),
+  setTriggerDelimiter:         (triggerDelimiter)         => set({ triggerDelimiter }),
+  setHotbarSlots:              (hotbarSlots)              => set({ hotbarSlots }),
+  setEntryHeaderSize:          (entryHeaderSize)          => set({ entryHeaderSize }),
+  setFolderCollapseStages:     (folderCollapseStages)     => set({ folderCollapseStages }),
+  setCondensedShowStats:       (condensedShowStats)       => set({ condensedShowStats }),
+  setFabSize:                  (fabSize)                  => set({ fabSize }),
+  setFabCustomSize:            (fabCustomSize)            => set({ fabCustomSize }),
+  setFabQuickMenuEnabled:      (fabQuickMenuEnabled)      => set({ fabQuickMenuEnabled }),
+  setRollbackDefaultEnabled:   (rollbackDefaultEnabled)   => set({ rollbackDefaultEnabled }),
+  setKeepMenuOpenAfterImport:  (keepMenuOpenAfterImport)  => set({ keepMenuOpenAfterImport }),
+  setThesaurusEnabled:         (thesaurusEnabled)         => set({ thesaurusEnabled }),
+  setCrosstalkSwapMode:        (crosstalkSwapMode)        => set({ crosstalkSwapMode }),
+  setFunnyFishEnabled:         (funnyFishEnabled)         => set({ funnyFishEnabled }),
+  setStorageQuotaProfile:      (storageQuotaProfile)      => set({ storageQuotaProfile }),
+
+  applySettings: (settings) => set(settings),
+}));
