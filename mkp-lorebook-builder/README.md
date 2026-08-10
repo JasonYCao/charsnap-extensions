@@ -17,7 +17,7 @@ npm run build
 
 That produces a `dist/` folder. **Copy it wherever it should live and serve it as static files. That's the whole deployment.**
 
-The build prints an informational note that one chunk is over 500 kB. That's expected — it's the DOCX parser, split into its own file so it's only downloaded if someone actually imports a Word document. It never loads on a normal page view.
+The build prints an informational note that some chunks are over 500 kB. That's expected — there are two, the app itself and the DOCX parser. The parser is split into its own file so it's only downloaded if someone actually imports a Word document; it never loads on a normal page view.
 
 Things worth knowing before you wire it up:
 
@@ -55,6 +55,15 @@ Entries carry a name, a type, trigger keywords and a description. The app handle
 - **Up to 10 lorebooks** stored independently, each with its own name, entries and undo history
 - **Import / export** — JSON, TXT and DOCX in both directions, with blank templates for authoring outside the app
 
+The interface, as of 0.9.0:
+
+- **The lorebook title is a menu** — saved books on one side, import and export on the other; switch, create, delete or download without leaving the header
+- **A status bar along the bottom** carries the readouts: save state, entry count, storage use, feedback links and the running version
+- **A pull tab on the right edge** opens the lorebook list by *widening* the window, so nothing you were reading gets covered
+- **One `⤢ Size` menu** for window size, text size, entry height and **+** button size, each with a saveable default
+- **Settings is filterable** — four sections, with a search box that matches beyond the visible labels
+- **A first-run tour** walks through the above with annotated screenshots, and doesn't ask twice
+
 A full walkthrough of every feature is in the [user guide on the source repository](https://github.com/MrKingPingus/MKP-Lorebook-Builder#readme).
 
 ---
@@ -89,7 +98,7 @@ If your platform's policy doesn't allow either host, the synonym and related-wor
 | **Language** | JavaScript (React 18 + Vite 7) |
 | **Network calls at runtime** | None on load; two optional keyless lookups on user action ([details](#network-activity)) |
 | **Storage** | Browser `localStorage` only |
-| **Bundle size** | ~147 KB gzipped (JS) + ~17 KB gzipped (CSS) |
+| **Bundle size** | ~159 KB gzipped (JS) + ~21 KB gzipped (CSS) on load, plus a ~131 KB gzipped DOCX-parser chunk fetched only on Word import |
 
 ---
 
