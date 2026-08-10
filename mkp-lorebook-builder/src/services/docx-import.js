@@ -1,5 +1,7 @@
-// Load Mammoth.js, parse the .docx structure (headings + paragraphs), and build
-// entries from it. Falls back to raw-text + txt-import for unstructured docs.
+// Dynamically import Mammoth.js from the bundle, parse the .docx structure (headings +
+// paragraphs), and build entries from it. Falls back to raw-text + txt-import for
+// unstructured docs. Mammoth is code-split rather than CDN-loaded so Word import works
+// offline and the deployment runs no third-party JavaScript.
 import { parseTxtToEntries } from './txt-import.js';
 import { createEmptyEntry } from './entry-factory.js';
 import { unescapeImportedEntry } from './unescape-import.js';
@@ -13,10 +15,6 @@ const TYPE_BY_LABEL = new Map(ENTRY_TYPES.map((t) => [t.label.toLowerCase(), t.i
 
 let mammothPromise = null;
 
-// Bundled rather than fetched from a CDN, so a deployment carries no third-party
-// runtime dependency and DOCX import keeps working offline. The dynamic import
-// still code-splits it into its own chunk, so the bytes are only pulled the
-// first time someone actually imports a .docx.
 function loadMammoth() {
   if (mammothPromise) return mammothPromise;
   mammothPromise = import('mammoth').then((mod) => mod.default ?? mod);
