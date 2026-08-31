@@ -5,6 +5,20 @@
 // private, 0 hidden-from-export.
 import { launch, openBuilderWithFixture, importBookAsNew, enterSelectMode, selectCards, exportJson, countPrivate, openSettings, openSettingsSection, pairCrosstalk, settle, dragTo, rowNames, scrollListToBottom, enableCondensedStage, openScaleMenu, setScaleOption, closeScaleMenu, BASE_URL, FIXTURE, VARIANT_FIXTURE } from './driver.mjs';
 import { VARIANT_COUNTS, VARIANT_MARKER } from '../fixtures/build-variant-book.mjs';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { latestRelease } from '../src/services/release-notes.js';
+
+// Does the newest changelog section have anything left after the internal-only
+// subsections are stripped? Reads the same file the app bundles, so it answers
+// for the build under test rather than for a fixture.
+//
+// Two scenarios depend on the update notice actually opening, and it correctly
+// does not open for a release that is pure `Under the hood`.
+function latestReleaseHasUserContent() {
+  const raw = readFileSync(fileURLToPath(new URL('../CHANGELOG.md', import.meta.url)), 'utf8');
+  return (latestRelease(raw)?.userBlocks?.length ?? 0) > 0;
+}
 
 // `launch` overrides let a scenario run somewhere other than the default
 // desktop viewport — e.g. `{ mobile: true, width: 390, height: 780 }` for the
@@ -1843,6 +1857,18 @@ const SCENARIOS = [
     const KEY = 'mkp_last_seen_release';
     const notice = page.locator('.update-notice');
 
+    // The app only ever shows the newest release, so this scenario can only run
+    // when that release has something to say to users. A version that ships as
+    // pure `Under the hood` — a test suite, a dependency bump — correctly opens
+    // no notice at all, and there is then no notice here to make assertions
+    // about. Skipped rather than relaxed: an assertion rewritten to accept
+    // "no notice" would keep passing forever and stop testing anything.
+    // The rule itself is covered without a browser in release-notes-checks.mjs.
+    if (!latestReleaseHasUserContent()) {
+      check('skipped — the newest release is internal-only', true, true);
+      return;
+    }
+
     // A first visit — nothing stored, nothing saved. Opening on a changelog for
     // an app you have never used is a poor introduction, so: nothing.
     await page.goto(BASE_URL, { waitUntil: 'networkidle' });
@@ -1892,140 +1918,38 @@ const SCENARIOS = [
     check('Escape closes it too', await notice.count(), 0);
   }),
 
-  scenario('Feature tour: click-through from the update notice, with enlarge', async (page, check) => {
-    // A 4xx/5xx on a tour image means the build is missing one — the failure
-    // mode this whole approach has to be watched for, since the images are
-    // generated separately from the code that shows them.
+  scenario('Feature tour: a desktop release with nothing to tour offers no tour', async (page, check) => {
+    // 0.10.0 replaced the screenshot gallery with a tour that drives the real
+    // app, and made the step list per-platform. Nothing changed on desktop that
+    // release, so `TOUR_STEPS_DESKTOP` is deliberately empty — and the contract
+    // this pins is that an empty list means *no offer*, not an empty tour.
     //
-    // Scoped to the tour's own assets rather than every request on the page.
-    // Unscoped, this also caught `/_vercel/insights/script.js`, which
-    // @vercel/analytics requests at runtime and which only exists when the app
-    // is served by Vercel — so it 404s on the production build under CI, on
-    // GitHub Pages, and on any local preview. That is expected and harmless,
-    // and it has nothing to do with whether the tour's images shipped.
-    const failed = [];
-    page.on('response', (r) => {
-      if (r.status() >= 400 && r.url().includes('/screenshots/')) {
-        failed.push(`${r.status()} ${r.url()}`);
-      }
-    });
+    // The button on the lander is evergreen rather than tied to the update
+    // notice, so it is the one that would otherwise lead somewhere blank.
+    if (!latestReleaseHasUserContent()) {
+      check('skipped — the newest release is internal-only', true, true);
+      return;
+    }
 
     await page.goto(BASE_URL, { waitUntil: 'networkidle' });
     await page.evaluate(() => {
       localStorage.removeItem('mkp_last_seen_release');
-      localStorage.setItem('mkp_lorebook_index', JSON.stringify([
-        { id: 'x', name: 'Old Book', updatedAt: Date.now() },
-      ]));
     });
     await page.reload({ waitUntil: 'networkidle' });
-    await settle(page, 600);
+    await settle(page, 400);
 
-    await page.locator('.update-notice-btn', { hasText: 'Show me the new features' }).click();
-    await settle(page, 700);
-    check('the notice opens the tour', await page.locator('.tour-panel').count(), 1);
-    // Taking the tour counts as having seen the release, so it can't reappear
-    // behind the tour or on the next visit.
-    check('and the notice is dismissed, not just hidden',
-      await page.evaluate(() => localStorage.getItem('mkp_last_seen_release') !== null), true);
+    const notice = page.locator('.update-notice');
+    check('the update notice still shows', await notice.count(), 1);
+    check('but offers no tour button',
+      await notice.locator('.update-notice-btn--primary').count(), 0);
+    check('and its dismiss reads Close rather than Not now',
+      (await notice.locator('.update-notice-btn').first().textContent())?.trim(), 'Close');
 
-    check('it starts at the first step',
-      (await page.locator('.tour-progress').innerText()).startsWith('1 of'), true);
-    check('Back is disabled on the first step',
-      await page.locator('.tour-btn', { hasText: 'Back' }).isDisabled(), true);
-
-    // The image has to actually decode — a broken src still renders an <img>.
-    const loaded = () => page.locator('.tour-shot img')
-      .evaluate((i) => i.complete && i.naturalWidth > 0);
-    check('the first screenshot loads', await loaded(), true);
-    check('it is a 2x capture, so there is detail to enlarge into',
-      (await page.locator('.tour-shot img').evaluate((i) => i.naturalWidth)) > 1000, true);
-    // Text baked into a PNG is invisible to a screen reader; the caption and alt
-    // text are what actually carry the step.
-    check('the step has real caption text',
-      (await page.locator('.tour-body').innerText()).length > 40, true);
-    // The numbered labels are HTML, not painted into the PNG. Baked in they
-    // covered whatever sat low in the window — the sizing menu, for one — and
-    // they vanished on enlarging, taking the explanation with them.
-    check('the numbered labels are real text, not part of the image',
-      (await page.locator('.tour-marks li').count()) > 0, true);
-    check('and the image has alt text',
-      ((await page.locator('.tour-shot img').getAttribute('alt')) ?? '').length > 20, true);
-    // Title under the screenshot, next to the caption it belongs with. Split
-    // across the image — title above, explanation below — they read as two
-    // separate things and the title stopped giving the caption its context.
-    check('the step title sits below the screenshot, with the caption', await page.evaluate(() => {
-      const shot = document.querySelector('.tour-panel .tour-shot').getBoundingClientRect();
-      const title = document.querySelector('.tour-panel .tour-step-title').getBoundingClientRect();
-      const body = document.querySelector('.tour-panel .tour-body').getBoundingClientRect();
-      return title.top >= shot.bottom && body.top >= title.bottom;
-    }), true);
-
-    // Walk to the end.
-    const steps = await page.locator('.tour-dot').count();
-    for (let i = 0; i < steps - 1; i++) {
-      await page.locator('.tour-btn', { hasText: 'Next' }).click();
-      await settle(page, 300);
-    }
-    check('every step is reachable',
-      (await page.locator('.tour-progress').innerText()), `${steps} of ${steps}`);
-    check('the last screenshot loads too', await loaded(), true);
-    check('the last step offers Done rather than Next',
-      await page.locator('.tour-btn', { hasText: 'Done' }).count(), 1);
-
-    // Enlarging is the reason the captures are 2x rather than 1x.
-    await page.locator('.tour-shot').click();
-    await settle(page, 500);
-    check('clicking the shot enlarges it', await page.locator('.tour-zoom').count(), 1);
-
-    // The captures are 1150 logical px tall — taller than plenty of browser
-    // viewports. Centring the container with `align-items: center` pushed the
-    // top of an oversized image outside the scrollable area, where it was both
-    // clipped and unreachable. It must fit, or at minimum stay scrollable to.
-    const zoom = await page.evaluate(() => {
-      const box = document.querySelector('.tour-zoom');
-      const img = box.querySelector('img');
-      const b = box.getBoundingClientRect();
-      const i = img.getBoundingClientRect();
-      return {
-        topVisible: Math.round(i.top) >= Math.round(b.top),
-        fits: Math.round(i.height) <= box.clientHeight,
-        wider: Math.round(i.width) > 0,
-      };
-    });
-    check('the enlarged image is not clipped at the top', zoom.topVisible, true);
-
-    // Enlarging is what makes the screenshot readable, so the explanation has
-    // to come with it — and must not sit on top of the thing it describes.
-    check('the notes stay visible while enlarged',
-      (await page.locator('.tour-zoom-aside .tour-marks li').count()) > 0, true);
-    check('and the caption comes too',
-      (await page.locator('.tour-zoom-aside .tour-body').innerText()).length > 40, true);
-    const overlap = await page.evaluate(() => {
-      const box = document.querySelector('.tour-zoom');
-      const i = box.querySelector('img').getBoundingClientRect();
-      const a = box.querySelector('.tour-zoom-aside').getBoundingClientRect();
-      return !(a.left >= i.right - 1 || a.right <= i.left + 1);
-    });
-    check('the notes do not overlap the screenshot', overlap, false);
-    check('and fits the viewport rather than needing a scroll', zoom.fits, true);
-    check('it actually rendered', zoom.wider, true);
-    // Escape backs out of the enlargement first, so zooming in doesn't cost you
-    // your place in the sequence.
     await page.keyboard.press('Escape');
     await settle(page, 300);
-    check('Escape closes the enlargement', await page.locator('.tour-zoom').count(), 0);
-    check('and leaves the tour open', await page.locator('.tour-panel').count(), 1);
-    await page.keyboard.press('Escape');
-    await settle(page, 300);
-    check('a second Escape closes the tour', await page.locator('.tour-panel').count(), 0);
-
-    // Dismissing the notice must not be a one-way door to the tour.
-    check('the lander offers a way back in', await page.locator('.lander-tour-btn').count(), 1);
-    await page.locator('.lander-tour-btn').click();
-    await settle(page, 500);
-    check('which reopens it', await page.locator('.tour-panel').count(), 1);
-
-    check('no tour asset 404d', failed.join(' | '), '');
+    check('the lander offers no tour either', await page.locator('.lander-tour-btn').count(), 0);
+    check('and nothing from the retired gallery is left behind',
+      await page.locator('.tour-panel, .tour-zoom, .tour-dot').count(), 0);
   }),
 
   scenario('Side panel slides open without the entry list lurching', async (page, check) => {
@@ -2188,15 +2112,15 @@ const SCENARIOS = [
     const editing = await openSettingsSection(page, 'Editing & Entries');
     const editingDividers = await editing.locator('.settings-divider-label').allInnerTexts();
     check('Editing & Entries is divided into four runs',
-      editingDividers.join(',').toLowerCase(), 'writing aids,counters,entry badges,entry history');
+      editingDividers.join(',').toLowerCase(), 'writing aids,counters,entry badges,entry checkpoints');
 
-    // Entry history is the tallest block and a set-once, per-book opt-in, so it
-    // deliberately trails its section rather than leading it.
+    // Entry checkpoints is the tallest block and a set-once, per-book opt-in, so
+    // it deliberately trails its section rather than leading it.
     const groupOrder = await editing.evaluate((sec) =>
       [...sec.querySelectorAll('.settings-divider-label, .settings-label')]
         .map((el) => el.textContent.trim()));
     check('suggestions lead the section',
-      groupOrder.indexOf('Suggestions collapsed by default') < groupOrder.indexOf('Entry history (this lorebook)'), true);
+      groupOrder.indexOf('Suggestions collapsed by default') < groupOrder.indexOf('Entry checkpoints (this lorebook)'), true);
 
     // The storage limit is alone in System for now, by design.
     const system = await openSettingsSection(page, 'System');
@@ -2241,6 +2165,134 @@ const SCENARIOS = [
       await page.locator('.settings-section-title').count(), 4);
     check('and returns them to collapsed',
       await page.locator('.settings-section-body').count(), 0);
+  }),
+
+  // Collapsing an entry is a view toggle and nothing else. It used to intercept
+  // the collapse with a save prompt (#132), which asked about an entry autosave
+  // had already persisted; the dot replaces it with the same information and no
+  // interruption. This is the first behavioural coverage the system has had.
+  scenario('Checkpoints: collapsing never prompts, and the dot tracks unsaved content', async (page, check) => {
+    await openBuilderWithFixture(page);
+
+    const card = page.locator('.entry-card').first();
+    if (await card.locator('.entry-card-body').count() === 0) {
+      await card.locator('.entry-card-header').dblclick();
+      await settle(page, 300);
+    }
+
+    // The button enables checkpoints itself rather than sending you to Settings,
+    // and opens the panel so the state change is visible.
+    const enable = card.locator('.rollback-toggle-btn');
+    check('the disabled state offers to enable, not to navigate',
+      (await enable.innerText()).trim(), 'Enable checkpoints');
+    await enable.click();
+    await settle(page, 300);
+    check('pressing it turns checkpoints on for the book',
+      (await card.locator('.rollback-toggle-btn').innerText()).includes('Checkpoints'), true);
+    check('and opens the panel as confirmation',
+      await card.locator('.rollback-panel').count(), 1);
+
+    // Same per-book setting, reached the long way — it must agree.
+    await openSettings(page);
+    const editing = await openSettingsSection(page, 'Editing & Entries');
+    const row = editing.locator('.settings-label', { hasText: 'Entry checkpoints (this lorebook)' });
+    check('Settings names the feature Entry checkpoints', await row.count(), 1);
+    check('and Settings agrees it is now on',
+      await row.locator('input[type=checkbox]').isChecked(), true);
+    await page.keyboard.press('Escape');
+    await settle(page, 300);
+
+    // First edit of the session auto-saves a checkpoint of the pre-edit state.
+    const desc = card.locator('textarea').first();
+    await desc.click();
+    await desc.type(' EDITED');
+    await settle(page, 400);
+
+    const btn = card.locator('.rollback-toggle-btn');
+    check('the footer button reads Checkpoints',
+      (await btn.innerText()).includes('Checkpoints'), true);
+    check('content newer than the latest checkpoint raises the dot',
+      await card.locator('.rollback-unsaved-dot').count(), 1);
+
+    // The point of #132: collapsing is not a decision point.
+    await card.locator('.entry-card-header').dblclick();
+    await settle(page, 500);
+    check('collapsing raises no prompt', await page.locator('.rollback-prompt').count(), 0);
+    check('and the card simply collapses', await card.locator('.entry-card-body').count(), 0);
+
+    await card.locator('.entry-card-header').dblclick();
+    await settle(page, 300);
+    await card.locator('.rollback-toggle-btn').click();
+    await settle(page, 300);
+
+    const panel = card.locator('.rollback-panel');
+    check('the panel is titled Checkpoints',
+      (await panel.locator('.rollback-panel-title').innerText()).toLowerCase(), 'checkpoints');
+    check('the auto-checkpoint is listed', await panel.locator('.rollback-item').count(), 1);
+
+    // Replace Latest used to be a prompt button; it is now a choice about one
+    // named checkpoint, taken deliberately from the panel.
+    const overwrite = panel.locator('.rollback-item').first()
+      .locator('.rollback-item-actions .rollback-action-btn').first();
+    check('overwrite is offered per checkpoint',
+      await overwrite.getAttribute('title'),
+      "Overwrite this checkpoint with the entry's current content");
+    await overwrite.click();
+    await settle(page, 400);
+    check('overwriting replaces rather than appends',
+      await panel.locator('.rollback-item').count(), 1);
+    check('and the dot clears once the content is captured',
+      await card.locator('.rollback-unsaved-dot').count(), 0);
+  }),
+
+  // #130: accepting a suggestion removes its chip and the list reflows, sliding a
+  // different chip under a cursor that never moved. That fires a mouseenter the
+  // user did not perform, and the synonyms popover opens by itself. The popover
+  // mounts on an anchor rect rather than on fetched data, so these presence
+  // checks do not depend on Datamuse being reachable.
+  scenario('Suggestions: accepting a chip does not summon a popover under a still cursor', async (page, check) => {
+    await openBuilderWithFixture(page);
+
+    const card = page.locator('.entry-card').first();
+    if (await card.locator('.entry-card-body').count() === 0) {
+      await card.locator('.entry-card-header').dblclick();
+      await settle(page, 300);
+    }
+    if (await card.locator('.suggestions-chips').count() === 0) {
+      await card.locator('.suggestions-toggle').click();
+      await settle(page, 400);
+    }
+    const chips = card.locator('.suggestion-chip');
+    check('the fixture offers suggestions to work with',
+      (await chips.count()) > 3, true);
+
+    // Deliberate hover — the feature itself must still work.
+    await chips.nth(1).hover();
+    await settle(page, 500);
+    check('hovering a chip opens synonyms',
+      await page.locator('.thesaurus-popover').count(), 1);
+
+    await card.locator('textarea').first().hover();
+    await settle(page, 500);
+    check('moving off the chip closes it',
+      await page.locator('.thesaurus-popover').count(), 0);
+
+    // Playwright's click leaves the pointer on the chip, which is exactly the
+    // reported condition: the cursor stays put while the list reflows beneath it.
+    await chips.first().click();
+    await settle(page, 500);
+    check('accepting a chip summons no popover',
+      await page.locator('.thesaurus-popover').count(), 0);
+    await card.locator('textarea').first().click();
+    await settle(page, 300);
+    check('and none appears once focus moves to the description',
+      await page.locator('.thesaurus-popover').count(), 0);
+
+    // Suppression is scoped to the stationary pointer, not sticky.
+    await chips.nth(2).hover();
+    await settle(page, 500);
+    check('a genuine hover afterwards still opens synonyms',
+      await page.locator('.thesaurus-popover').count(), 1);
   }),
 
   scenario('Settings: the ? cheat sheet deep-links to the keybinding editor', async (page, check) => {

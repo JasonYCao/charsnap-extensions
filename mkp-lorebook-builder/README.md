@@ -55,14 +55,17 @@ Entries carry a name, a type, trigger keywords and a description. The app handle
 - **Up to 10 lorebooks** stored independently, each with its own name, entries and undo history
 - **Import / export** — JSON, TXT and DOCX in both directions, with blank templates for authoring outside the app
 
-The interface, as of 0.9.0:
+The interface, as of 0.10.0:
 
-- **The lorebook title is a menu** — saved books on one side, import and export on the other; switch, create, delete or download without leaving the header
+- **The lorebook title is a menu** — saved books on one side, import and export on the other; switch, create, rename, delete or download without leaving the header
 - **A status bar along the bottom** carries the readouts: save state, entry count, storage use, feedback links and the running version
 - **A pull tab on the right edge** opens the lorebook list by *widening* the window, so nothing you were reading gets covered
 - **One `⤢ Size` menu** for window size, text size, entry height and **+** button size, each with a saveable default
 - **Settings is filterable** — four sections, with a search box that matches beyond the visible labels
-- **A first-run tour** walks through the above with annotated screenshots, and doesn't ask twice
+- **Reference lorebooks** — pair a second book to compare triggers against, chosen from one picker reachable from the title menu, a book's **⋯** menu, the hotbar, the Lorebooks panel or Settings
+- **Select mode** condenses entries to name-and-checkbox (about 4× as many on screen) and collects its bulk operations into a single **Actions** menu
+- **Usable on a phone** — the whole touch layout was reworked in 0.10.0: a 44px minimum tap target throughout, the title menu reachable from the phone header, filter controls on one row, and the hotbar clear of Safari's address bar on iOS
+- **A guided tour** highlights controls in the live app one at a time, running on its own sample books that are never written to storage
 
 A full walkthrough of every feature is in the [user guide on the source repository](https://github.com/MrKingPingus/MKP-Lorebook-Builder#readme).
 
@@ -98,7 +101,7 @@ If your platform's policy doesn't allow either host, the synonym and related-wor
 | **Language** | JavaScript (React 18 + Vite 7) |
 | **Network calls at runtime** | None on load; two optional keyless lookups on user action ([details](#network-activity)) |
 | **Storage** | Browser `localStorage` only |
-| **Bundle size** | ~159 KB gzipped (JS) + ~21 KB gzipped (CSS) on load, plus a ~131 KB gzipped DOCX-parser chunk fetched only on Word import |
+| **Bundle size** | ~168 KB gzipped (JS) + ~22 KB gzipped (CSS) on load, plus a ~131 KB gzipped DOCX-parser chunk fetched only on Word import |
 
 ---
 

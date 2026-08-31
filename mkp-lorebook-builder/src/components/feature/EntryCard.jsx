@@ -67,9 +67,8 @@ function ExportOffIcon() {
 export function EntryCard({ entry, index, onUpdate, onRemove, onDragHandleMouseDown, onSelectionClick, density = 'full' }) {
   const [localCollapsed, setLocalCollapsed]   = useState(true);
   const [rollbackOpen, setRollbackOpen]       = useState(false);
-  const [suppressChecked, setSuppressChecked] = useState(false);
   const [copyMenuOpen, setCopyMenuOpen]       = useState(false);
-  const { hideEntryStats, markPrivateEntries, counterTiers, tieredCounterEnabled, triggerDelimiter, setTriggerDelimiter, entryHeaderSize, condensedShowStats } = useSettings();
+  const { hideEntryStats, markPrivateEntries, counterTiers, tieredCounterEnabled, triggerDelimiter, setTriggerDelimiter, entryHeaderSize, condensedShowStats, fullCardsInSelectMode } = useSettings();
   const { conflictMap, allowedOverlaps, allowOverlap, allowOverlaps, revokeOverlap } = useCrosstalk();
   const { activeToRef: nameMatchMap, matchedRefByActive } = useNameMatch();
   const setPeekReferenceEntryId = useUi((s) => s.setPeekReferenceEntryId);
@@ -87,7 +86,6 @@ export function EntryCard({ entry, index, onUpdate, onRemove, onDragHandleMouseD
   const pendingFocusEntryId    = useUi((s) => s.pendingFocusEntryId);
   const setSearchFocusedId     = useUi((s) => s.setSearchFocusedId);
   const setPendingFocusEntryId = useUi((s) => s.setPendingFocusEntryId);
-  const setActiveMenuPanel     = useUi((s) => s.setActiveMenuPanel);
   const { openEntry }     = useEntryDetail();
   const rollback        = useRollback({ entry, onUpdate });
   const nameInputRef    = useRef(null);
@@ -283,7 +281,6 @@ export function EntryCard({ entry, index, onUpdate, onRemove, onDragHandleMouseD
     if (isSearchFocused) setSearchFocusedId(null);
     setLocalCollapsed(true);
     setRollbackOpen(false);
-    setSuppressChecked(false);
   }
 
   function toggleCollapse() {
@@ -291,7 +288,7 @@ export function EntryCard({ entry, index, onUpdate, onRemove, onDragHandleMouseD
       if (isSearchFocused) setSearchFocusedId(null);
       setLocalCollapsed(false);
     } else {
-      rollback.handleCollapseIntent(doCollapse);
+      doCollapse();
     }
   }
 
@@ -314,6 +311,38 @@ export function EntryCard({ entry, index, onUpdate, onRemove, onDragHandleMouseD
 
   // ── Mobile card — slim tap-to-open row ──────────────────────────────────────
   if (isMobile) {
+    // Select mode condenses to name + selection state. Note the mobile card has
+    // never read `density` — that is a folder-collapse concept and this branch
+    // returns before it — so this is its own thing rather than a reuse.
+    //
+    // What goes: the `#N` index (17px) and the type label (18px), taking an 81px
+    // card to 46px. The type is not lost, it is the row's left border colour;
+    // and while you are choosing *between* entries the name is what you are
+    // choosing on. `fullCardsInSelectMode` puts them back.
+    //
+    // A *selected* row keeps its staged-type dropdown and so stays tall. That
+    // is deliberate twice over: it preserves per-row staged types, which the
+    // bulk "Change type" cannot express (it sets one type for everything), and
+    // the height change is itself a selection cue.
+    const condensed = isSelectMode && !fullCardsInSelectMode && !isSelected;
+
+    if (condensed) {
+      return (
+        <div
+          id={`entry-${entry.id}`}
+          className="entry-card entry-card--mobile entry-card--mobile-condensed"
+          style={{ '--type-color': typeColor }}
+          onClick={() => toggleSelected(entry.id, 'active')}
+        >
+          <span className="entry-card-mobile-tick" aria-hidden="true" />
+          <span className="entry-card-mobile-name entry-card-mobile-name--condensed">
+            {entry.name || '(unnamed)'}
+          </span>
+          {entry.hiddenFromExport && <ExportOffIcon />}
+        </div>
+      );
+    }
+
     return (
       <div
         id={`entry-${entry.id}`}
@@ -321,32 +350,40 @@ export function EntryCard({ entry, index, onUpdate, onRemove, onDragHandleMouseD
         style={{ '--type-color': typeColor }}
         onClick={() => isSelectMode ? toggleSelected(entry.id, 'active') : openEntry(entry.id)}
       >
+        {isSelectMode && <span className="entry-card-mobile-tick entry-card-mobile-tick--on" aria-hidden="true" />}
         <div className="entry-card-mobile-index">#{index}</div>
         <div className="entry-card-mobile-row">
           <span className="entry-card-mobile-name">
             {entry.name || '(unnamed)'}
-            {sameNameRefId && (
-              pickFromReferenceMode ? (
-                // During Pick from Reference pose, books are swapped — a name
-                // match means this reference-side entry is also in the user's
-                // original active book, i.e. copying it would duplicate.
-                <span
-                  className="entry-ref-badge entry-ref-badge--in-active"
-                  title="Same-named entry already exists in your active book — copying would duplicate"
-                >
-                  in active
-                </span>
-              ) : (
-                <button
-                  className="entry-ref-badge"
-                  onClick={(e) => { e.stopPropagation(); setPeekReferenceEntryId(sameNameRefId); }}
-                  title="Same-named entry exists in the reference book — tap to peek"
-                >
-                  ref <span className="entry-ref-badge-arrow">↗</span>
-                </button>
-              )
-            )}
           </span>
+          {/* A sibling of the name rather than a child of it: the name span
+              truncates, and an element with `overflow: hidden` clips its own
+              ::before, so a badge inside it can never carry a tap target
+              bigger than its 52×19 ink. Out here it can — and it also stops
+              being ellipsised away on a long name, which it never should have
+              been: the badge is the part of the row you cannot reconstruct by
+              reading the rest of it. */}
+          {sameNameRefId && (
+            pickFromReferenceMode ? (
+              // During Pick from Reference pose, books are swapped — a name
+              // match means this reference-side entry is also in the user's
+              // original active book, i.e. copying it would duplicate.
+              <span
+                className="entry-ref-badge entry-ref-badge--in-active touch-floor"
+                title="Same-named entry already exists in your active book — copying would duplicate"
+              >
+                in active
+              </span>
+            ) : (
+              <button
+                className="entry-ref-badge touch-floor"
+                onClick={(e) => { e.stopPropagation(); setPeekReferenceEntryId(sameNameRefId); }}
+                title="Same-named entry exists in the reference book — tap to peek"
+              >
+                ref <span className="entry-ref-badge-arrow">↗</span>
+              </button>
+            )
+          )}
           <div className="entry-card-mobile-right">
             {entry.isPublic === true && <PublicEyeIcon />}
             {entry.isPublic !== true && markPrivateEntries && <PrivateEyeOffIcon />}
@@ -449,7 +486,7 @@ export function EntryCard({ entry, index, onUpdate, onRemove, onDragHandleMouseD
         {!isCondensed && entry.hiddenFromExport && <ExportOffIcon />}
         {!isCondensed && sameNameRefId && (
           <button
-            className={`entry-ref-badge entry-ref-badge--header${matchedIsEqual ? ' entry-ref-badge--match' : ' entry-ref-badge--diff'}${isComparing && !matchedIsEqual ? ' entry-ref-badge--comparing' : ''}`}
+            className={`entry-ref-badge entry-ref-badge--header touch-floor${matchedIsEqual ? ' entry-ref-badge--match' : ' entry-ref-badge--diff'}${isComparing && !matchedIsEqual ? ' entry-ref-badge--comparing' : ''}`}
             onClick={onBadgeClick}
             title={
               matchedIsEqual
@@ -498,35 +535,9 @@ export function EntryCard({ entry, index, onUpdate, onRemove, onDragHandleMouseD
           className="entry-card-body"
           onDoubleClick={(e) => {
             if (e.target.closest('button, input, textarea, select, .rollback-panel')) return;
-            rollback.handleCollapseIntent(doCollapse);
+            doCollapse();
           }}
         >
-          {/* Navigate-away prompt — rendered first so it's visible at the top */}
-          {rollback.promptVisible && (
-            <div className="rollback-prompt">
-              <div className="rollback-prompt-message">Save a snapshot before closing?</div>
-              <div className="rollback-prompt-actions">
-                <button className="rollback-prompt-btn" onClick={() => { rollback.promptSaveNew(suppressChecked); setSuppressChecked(false); }}>
-                  Save New
-                </button>
-                <button className="rollback-prompt-btn" onClick={() => { rollback.promptReplace(suppressChecked); setSuppressChecked(false); }}>
-                  Replace Latest
-                </button>
-                <button className="rollback-prompt-btn rollback-prompt-btn--skip" onClick={rollback.promptSkip}>
-                  Skip
-                </button>
-              </div>
-              <label className="rollback-prompt-suppress">
-                <input
-                  type="checkbox"
-                  checked={suppressChecked}
-                  onChange={(e) => setSuppressChecked(e.target.checked)}
-                />
-                Don't ask again this session
-              </label>
-            </div>
-          )}
-
           {/* Row 1: Entry Name + Entry Type */}
           <div className="entry-fields-row">
             <div className={`entry-field entry-field--name${isComparing && compareDelta?.name ? ' entry-field--differs' : ''}`}>
@@ -695,35 +706,48 @@ export function EntryCard({ entry, index, onUpdate, onRemove, onDragHandleMouseD
             ) : null}
           />
 
-          {/* Row 5: Rollback — hidden in compare mode so both sides share
-              the same minimal layout. Exit compare mode to access rollback. */}
+          {/* Row 5: Checkpoints — hidden in compare mode so both sides share
+              the same minimal layout. Exit compare mode to access them. */}
           {!isComparing && (<>
           <div className="rollback-footer">
             <button
-              className={`rollback-toggle-btn${rollback.enabled ? '' : ' rollback-toggle-btn--disabled'}`}
+              className={`rollback-toggle-btn touch-floor${rollback.enabled ? '' : ' rollback-toggle-btn--disabled'}`}
               onClick={() => {
                 if (rollback.enabled) {
                   setRollbackOpen((o) => !o);
                 } else {
-                  setActiveMenuPanel('settings');
+                  // The button says Enable, so it enables — no trip to Settings.
+                  // Opening the panel straight after is the confirmation that
+                  // something happened, and it explains what you just turned on.
+                  rollback.setRollbackEnabled(true);
+                  setRollbackOpen(true);
                 }
               }}
-              title={rollback.enabled ? 'View and restore entry history' : 'Open Settings to enable entry history for this lorebook'}
+              title={rollback.enabled
+                ? (rollback.hasUnsavedChanges
+                    ? 'Edited since your newest checkpoint — open to save one'
+                    : 'View and restore entry checkpoints')
+                : 'Turn on checkpoints for this lorebook'}
             >
-              {rollback.enabled
-                ? `↺ Entry History${rollback.snapshots.length > 0 ? ` (${rollback.snapshots.length})` : ''}`
-                : 'Enable entry history?'}
+              {rollback.enabled ? (
+                <>
+                  {rollback.hasUnsavedChanges && (
+                    <span className="rollback-unsaved-dot" aria-hidden="true" />
+                  )}
+                  {`↺ Checkpoints${rollback.snapshots.length > 0 ? ` (${rollback.snapshots.length})` : ''}`}
+                </>
+              ) : 'Enable checkpoints'}
             </button>
             <MoveToFolderButton entry={entry} />
             <button
-              className={`entry-public-btn${entry.isPublic === true ? ' entry-public-btn--public' : ''}`}
+              className={`entry-public-btn touch-floor${entry.isPublic === true ? ' entry-public-btn--public' : ''}`}
               onClick={() => update({ isPublic: entry.isPublic !== true }, true)}
               title={entry.isPublic === true ? 'Public on CharSnap — click to make private' : 'Private on CharSnap — click to make public'}
             >
               {entry.isPublic === true ? 'Public' : 'Private'}
             </button>
             <button
-              className={`hide-from-export-btn${entry.hiddenFromExport ? ' hide-from-export-btn--active' : ''}`}
+              className={`hide-from-export-btn touch-floor${entry.hiddenFromExport ? ' hide-from-export-btn--active' : ''}`}
               onClick={() => update({ hiddenFromExport: !entry.hiddenFromExport }, true)}
               title="Exclude entry from JSON export"
             >
@@ -740,8 +764,7 @@ export function EntryCard({ entry, index, onUpdate, onRemove, onDragHandleMouseD
               onTogglePin={rollback.toggleSnapshotPin}
               onDeleteSnapshot={rollback.deleteSnapshot}
               onSaveManual={rollback.saveSnapshot}
-              promptSuppressed={rollback.promptSuppressed}
-              onReEnablePrompt={rollback.reEnablePrompt}
+              onOverwrite={rollback.overwriteSnapshot}
             />
           )}
           </>)}

@@ -16,6 +16,8 @@ import { TriggerChips }    from './TriggerChips.jsx';
 import { DescriptionArea } from './DescriptionArea.jsx';
 import { SuggestionsTray } from './SuggestionsTray.jsx';
 import { RollbackPanel }   from './RollbackPanel.jsx';
+import { useDismissLayer } from '../../hooks/use-dismiss-layer.js';
+import { DISMISS_PRIORITY } from '../../services/dismiss-stack.js';
 
 export function EntryDetailPanel() {
   const { activeEntryId, closeEntry } = useEntryDetail();
@@ -23,7 +25,6 @@ export function EntryDetailPanel() {
   const searchQuery            = useUi((s) => s.searchQuery);
   const pendingFocusEntryId    = useUi((s) => s.pendingFocusEntryId);
   const setPendingFocusEntryId = useUi((s) => s.setPendingFocusEntryId);
-  const setActiveMenuPanel     = useUi((s) => s.setActiveMenuPanel);
   const { triggerDelimiter, setTriggerDelimiter } = useSettings();
   const { conflictMap, allowedOverlaps, allowOverlap, allowOverlaps, revokeOverlap } = useCrosstalk();
   const { activeToRef: nameMatchMap } = useNameMatch();
@@ -33,7 +34,6 @@ export function EntryDetailPanel() {
   const { copyEntryToReference }                = useCopyEntryToReference();
   const nameInputRef = useRef(null);
   const [rollbackOpen, setRollbackOpen]         = useState(false);
-  const [suppressChecked, setSuppressChecked]   = useState(false);
   const [copiedFlash,  setCopiedFlash]          = useState(false);
 
   const entry = entries.find((e) => e.id === activeEntryId) ?? null;
@@ -49,6 +49,11 @@ export function EntryDetailPanel() {
   }, [activeEntryId, pendingFocusEntryId]);
 
   const isOpen = !!activeEntryId;
+
+  // Escape leaves the editor the same way Back does — through the rollback
+  // collapse-intent prompt, not around it, so a discardable draft is still
+  // caught. `handleBack` is a hoisted declaration, hence usable up here.
+  useDismissLayer('entry-detail', isOpen, DISMISS_PRIORITY.entryDetail, handleBack);
 
   function update(patch, discrete = false) {
     if (!entry) return;
@@ -76,11 +81,8 @@ export function EntryDetailPanel() {
   }
 
   function handleBack() {
-    rollback.handleCollapseIntent(() => {
-      setRollbackOpen(false);
-      setSuppressChecked(false);
-      closeEntry();
-    });
+    setRollbackOpen(false);
+    closeEntry();
   }
 
   function handleCopyToReference() {
@@ -95,7 +97,7 @@ export function EntryDetailPanel() {
     <div className={`entry-detail-panel${isOpen ? ' entry-detail-panel--open' : ''}`}>
       {/* Header */}
       <div className="entry-detail-header">
-        <button className="entry-detail-back" onClick={handleBack}>
+        <button className="entry-detail-back touch-floor" onClick={handleBack}>
           ← Back
         </button>
         <span className="entry-detail-title">
@@ -103,14 +105,14 @@ export function EntryDetailPanel() {
           {entry && nameMatchMap.has(entry.id) && (
             pickFromReferenceMode ? (
               <span
-                className="entry-ref-badge entry-ref-badge--header entry-ref-badge--in-active"
+                className="entry-ref-badge entry-ref-badge--header entry-ref-badge--in-active touch-floor"
                 title="Same-named entry already exists in your active book — copying would duplicate"
               >
                 in active
               </span>
             ) : (
               <button
-                className="entry-ref-badge entry-ref-badge--header"
+                className="entry-ref-badge entry-ref-badge--header touch-floor"
                 onClick={() => setPeekReferenceEntryId(nameMatchMap.get(entry.id))}
                 title="Same-named entry exists in the reference book — tap to peek"
               >
@@ -119,7 +121,7 @@ export function EntryDetailPanel() {
             )
           )}
         </span>
-        <button className="entry-detail-remove" onClick={handleRemove}>
+        <button className="entry-detail-remove touch-floor" onClick={handleRemove}>
           Remove
         </button>
       </div>
@@ -127,32 +129,6 @@ export function EntryDetailPanel() {
       {/* Body — only rendered while there is an active entry */}
       {entry && (
         <div className="entry-detail-body">
-          {/* Navigate-away prompt — top of panel so it's immediately visible */}
-          {rollback.promptVisible && (
-            <div className="rollback-prompt">
-              <div className="rollback-prompt-message">Save a snapshot before closing?</div>
-              <div className="rollback-prompt-actions">
-                <button className="rollback-prompt-btn" onClick={() => { rollback.promptSaveNew(suppressChecked); setSuppressChecked(false); }}>
-                  Save New
-                </button>
-                <button className="rollback-prompt-btn" onClick={() => { rollback.promptReplace(suppressChecked); setSuppressChecked(false); }}>
-                  Replace Latest
-                </button>
-                <button className="rollback-prompt-btn rollback-prompt-btn--skip" onClick={rollback.promptSkip}>
-                  Skip
-                </button>
-              </div>
-              <label className="rollback-prompt-suppress">
-                <input
-                  type="checkbox"
-                  checked={suppressChecked}
-                  onChange={(e) => setSuppressChecked(e.target.checked)}
-                />
-                Don't ask again this session
-              </label>
-            </div>
-          )}
-
           {/* Entry Name */}
           <div className="entry-detail-section">
             <div className="field-label">
@@ -235,29 +211,40 @@ export function EntryDetailPanel() {
           <div className="entry-detail-section">
             <div className="rollback-footer">
               <button
-                className={`rollback-toggle-btn${rollback.enabled ? '' : ' rollback-toggle-btn--disabled'}`}
+                className={`rollback-toggle-btn touch-floor${rollback.enabled ? '' : ' rollback-toggle-btn--disabled'}`}
                 onClick={() => {
                   if (rollback.enabled) {
                     setRollbackOpen((o) => !o);
                   } else {
-                    setActiveMenuPanel('settings');
+                    // See EntryCard: the button enables rather than navigating.
+                    rollback.setRollbackEnabled(true);
+                    setRollbackOpen(true);
                   }
                 }}
-                title={rollback.enabled ? 'View and restore entry history' : 'Open Settings to enable entry history for this lorebook'}
+                title={rollback.enabled
+                  ? (rollback.hasUnsavedChanges
+                      ? 'Edited since your newest checkpoint — open to save one'
+                      : 'View and restore entry checkpoints')
+                  : 'Turn on checkpoints for this lorebook'}
               >
-                {rollback.enabled
-                  ? `↺ Entry History${rollback.snapshots.length > 0 ? ` (${rollback.snapshots.length})` : ''}`
-                  : 'Enable entry history?'}
+                {rollback.enabled ? (
+                  <>
+                    {rollback.hasUnsavedChanges && (
+                      <span className="rollback-unsaved-dot" aria-hidden="true" />
+                    )}
+                    {`↺ Checkpoints${rollback.snapshots.length > 0 ? ` (${rollback.snapshots.length})` : ''}`}
+                  </>
+                ) : 'Enable checkpoints'}
               </button>
               <button
-                className={`entry-public-btn${entry.isPublic === true ? ' entry-public-btn--public' : ''}`}
+                className={`entry-public-btn touch-floor${entry.isPublic === true ? ' entry-public-btn--public' : ''}`}
                 onClick={() => update({ isPublic: entry.isPublic !== true }, true)}
                 title={entry.isPublic === true ? 'Public on CharSnap — click to make private' : 'Private on CharSnap — click to make public'}
               >
                 {entry.isPublic === true ? 'Public' : 'Private'}
               </button>
               <button
-                className={`hide-from-export-btn${entry.hiddenFromExport ? ' hide-from-export-btn--active' : ''}`}
+                className={`hide-from-export-btn touch-floor${entry.hiddenFromExport ? ' hide-from-export-btn--active' : ''}`}
                 onClick={() => update({ hiddenFromExport: !entry.hiddenFromExport }, true)}
                 title="Exclude entry from JSON export"
               >
@@ -284,8 +271,7 @@ export function EntryDetailPanel() {
                 onTogglePin={rollback.toggleSnapshotPin}
                 onDeleteSnapshot={rollback.deleteSnapshot}
                 onSaveManual={rollback.saveSnapshot}
-                promptSuppressed={rollback.promptSuppressed}
-                onReEnablePrompt={rollback.reEnablePrompt}
+                onOverwrite={rollback.overwriteSnapshot}
               />
             )}
           </div>

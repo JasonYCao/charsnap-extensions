@@ -20,9 +20,10 @@ export const SETTINGS_GROUP_KEYWORDS = {
   counterThresholds:'character count thresholds limit yellow red numbers chars',
   statsBadges:      'entry stats badges hide trigger count character count header',
   condensedStats:   'condensed rows stats badges folders compact',
+  fullCardsSelect:  'full entry cards select mode selecting condensed compact mobile rows density',
   privateMarker:    'private entries mark marker eye charsnap public visibility',
-  entryHistory:     'entry history rollback snapshots undo restore versions backup',
-  historyDefault:   'entry history default new lorebooks rollback',
+  entryHistory:     'entry checkpoints history rollback snapshots undo restore versions backup',
+  historyDefault:   'entry checkpoints history default new lorebooks rollback',
 
   // ── Appearance & Accessibility ─────────────────────────────────────
   theme:            'theme colors colours dark light high contrast custom palette appearance',
@@ -46,7 +47,7 @@ export const SETTINGS_GROUP_KEYWORDS = {
 /** Which groups belong to which section — lets a section know if it has any match. */
 export const SETTINGS_SECTION_GROUPS = {
   editing:    ['suggestions', 'thesaurus', 'tieredCounters', 'counterThresholds',
-               'statsBadges', 'condensedStats', 'privateMarker', 'entryHistory', 'historyDefault'],
+               'statsBadges', 'condensedStats', 'fullCardsSelect', 'privateMarker', 'entryHistory', 'historyDefault'],
   appearance: ['theme', 'accessibility', 'funnyFish'],
   controls:   ['keybindings', 'hotbar', 'fabQuickMenu', 'legacyMenus', 'folderStages',
                'referencePanel', 'crosstalkSwap', 'keepMenuOpen'],
