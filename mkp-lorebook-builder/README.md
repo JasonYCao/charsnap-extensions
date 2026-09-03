@@ -52,7 +52,7 @@ Entries carry a name, a type, trigger keywords and a description. The app handle
 - **Folders** — group entries, nest up to three levels, drag to reorder or refile
 - **Search and filter** — live filtering across names, triggers and descriptions, with find-and-replace across the whole book
 - **Suggestions** — auto-generated trigger keywords derived from an entry's name, type and description
-- **Up to 10 lorebooks** stored independently, each with its own name, entries and undo history
+- **Up to 50 lorebooks** stored independently, each with its own name, entries and undo history
 - **Import / export** — JSON, TXT and DOCX in both directions, with blank templates for authoring outside the app
 
 The interface, as of 0.10.0:
@@ -68,6 +68,21 @@ The interface, as of 0.10.0:
 - **A guided tour** highlights controls in the live app one at a time, running on its own sample books that are never written to storage
 
 A full walkthrough of every feature is in the [user guide on the source repository](https://github.com/MrKingPingus/MKP-Lorebook-Builder#readme).
+
+---
+
+## Embedding / host mode
+
+The builder can also run inside an `<iframe>` on a site that owns the lorebook's
+storage — the way it is embedded on CharSnap. Open it with `?host=charsnap` in a
+frame and it fills the frame, skips the landing page, takes its theme from the
+host, and saves through the host over `postMessage` instead of downloading a
+file. The standalone app is unaffected: the flag does nothing at top level.
+
+The full protocol — message names, the entry wire shape, `builderMeta`, the
+dirty/conflict rules, limits, and how to run the harness — is in
+[HOST-MODE.md](HOST-MODE.md). `public/_headers` carries the matching
+`frame-ancestors` policy for Cloudflare Pages.
 
 ---
 

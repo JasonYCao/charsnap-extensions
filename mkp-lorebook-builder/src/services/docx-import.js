@@ -6,6 +6,7 @@ import { parseTxtToEntries } from './txt-import.js';
 import { createEmptyEntry } from './entry-factory.js';
 import { unescapeImportedEntry } from './unescape-import.js';
 import { ENTRY_TYPES } from '../constants/entry-types.js';
+import { MAX_TRIGGERS } from '../constants/limits.js';
 
 const HEADING_TAGS = new Set(['H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
 const TRIGGER_LABEL = /^(Triggers|Keywords|Tags|Aliases):\s*/i;
@@ -64,7 +65,8 @@ function parseHtmlToEntries(html) {
       entries.push(createEmptyEntry({
         name:        current.name,
         type:        current.type ?? 'other',
-        triggers:    current.triggers,
+        // Same cap as the JSON and TXT importers.
+        triggers:    current.triggers.slice(0, MAX_TRIGGERS),
         description: current.descLines.join('\n').trim(),
       }));
     }
