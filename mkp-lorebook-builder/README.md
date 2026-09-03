@@ -55,7 +55,7 @@ Entries carry a name, a type, trigger keywords and a description. The app handle
 - **Up to 50 lorebooks** stored independently, each with its own name, entries and undo history
 - **Import / export** — JSON, TXT and DOCX in both directions, with blank templates for authoring outside the app
 
-The interface, as of 0.10.0:
+The interface, as of 0.11.0:
 
 - **The lorebook title is a menu** — saved books on one side, import and export on the other; switch, create, rename, delete or download without leaving the header
 - **A status bar along the bottom** carries the readouts: save state, entry count, storage use, feedback links and the running version
@@ -63,6 +63,8 @@ The interface, as of 0.10.0:
 - **One `⤢ Size` menu** for window size, text size, entry height and **+** button size, each with a saveable default
 - **Settings is filterable** — four sections, with a search box that matches beyond the visible labels
 - **Reference lorebooks** — pair a second book to compare triggers against, chosen from one picker reachable from the title menu, a book's **⋯** menu, the hotbar, the Lorebooks panel or Settings
+- **A `⋯` menu on every entry** gathers the per-entry actions — copy or move the entry to another lorebook, file it in a folder, save it as a reusable template or fill it from one, publish/hide it, delete it — all reachable without opening the entry
+- **Entry templates**, stored globally and shared by every lorebook: save an entry as a scaffold, then fill an existing entry or start a new one from it, choosing which of its fields to apply
 - **Select mode** condenses entries to name-and-checkbox (about 4× as many on screen) and collects its bulk operations into a single **Actions** menu
 - **Usable on a phone** — the whole touch layout was reworked in 0.10.0: a 44px minimum tap target throughout, the title menu reachable from the phone header, filter controls on one row, and the hotbar clear of Safari's address bar on iOS
 - **A guided tour** highlights controls in the live app one at a time, running on its own sample books that are never written to storage
@@ -116,7 +118,7 @@ If your platform's policy doesn't allow either host, the synonym and related-wor
 | **Language** | JavaScript (React 18 + Vite 7) |
 | **Network calls at runtime** | None on load; two optional keyless lookups on user action ([details](#network-activity)) |
 | **Storage** | Browser `localStorage` only |
-| **Bundle size** | ~168 KB gzipped (JS) + ~22 KB gzipped (CSS) on load, plus a ~131 KB gzipped DOCX-parser chunk fetched only on Word import |
+| **Bundle size** | ~188 KB gzipped (JS) + ~23 KB gzipped (CSS) on load, plus a ~131 KB gzipped DOCX-parser chunk fetched only on Word import |
 
 ---
 
