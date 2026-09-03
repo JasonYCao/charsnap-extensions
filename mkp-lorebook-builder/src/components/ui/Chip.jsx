@@ -1,0 +1,323 @@
+// Single trigger keyword chip with inline editing, × delete, and optional conflict ring + popover
+import { useState, useRef, useEffect } from 'react';
+import { reducedMotionScrollBehavior } from '../../hooks/use-accessibility.js';
+import { createPortal }     from 'react-dom';
+import { useMobile }        from '../../hooks/use-mobile.js';
+import { useHtmlEscape }    from '../../hooks/use-html-escape.js';
+import { useUi }            from '../../hooks/use-ui.js';
+import { useSettings }      from '../../hooks/use-settings.js';
+import { useReferenceLorebook } from '../../hooks/use-reference-lorebook.js';
+import { TypeColorDot }     from './TypeColorDot.jsx';
+import { ThesaurusPopover } from '../feature/ThesaurusPopover.jsx';
+import { THESAURUS_LONG_PRESS_MS } from '../../constants/limits.js';
+
+// Desktop hover delay before opening the thesaurus popover on an attached chip.
+// Intentionally longer than the suggestion-chip hover (140ms) so a casual mouse
+// pass over the trigger row doesn't unfurl synonyms repeatedly.
+const THESAURUS_HOVER_OPEN_MS  = 250;
+const THESAURUS_HOVER_CLOSE_MS = 200;
+
+export function Chip({ label, onDelete, onRename, color, highlight, ringColor, conflictEntries, acknowledged, onAllow, onRevoke, readOnly = false, onReplace, onAddTriggers, existingTriggers }) {
+  const { escapeHtml, escapeRegex } = useHtmlEscape();
+  const [editing,     setEditing]     = useState(false);
+  const [draft,       setDraft]       = useState(label);
+  // Single state for which popover is currently shown on this chip. Using one
+  // state instead of two booleans makes conflict ⇄ thesaurus switches atomic —
+  // there's no in-between render where both could be visible or both could be
+  // gone, which would otherwise race against the outside-click listeners.
+  const [activePopover, setActivePopover] = useState(null); // null | 'conflict' | 'thesaurus'
+  const [popoverPos,  setPopoverPos]  = useState({ left: 0, bottom: 0 });
+  const inputRef    = useRef(null);
+  const popoverRef  = useRef(null);
+  const chipRef     = useRef(null);
+  const hoverTimer  = useRef(null);
+  const isMobile    = useMobile();
+  const { thesaurusEnabled }    = useSettings();
+  const setSearchFocusedId      = useUi((s) => s.setSearchFocusedId);
+  const setPeekReferenceEntryId = useUi((s) => s.setPeekReferenceEntryId);
+  const { swapReference }       = useReferenceLorebook();
+
+  // Thesaurus on attached trigger — fires on desktop hover or touch long-press.
+  // Suppressed when the chip is read-only, when the user can't replace or add
+  // synonyms (callbacks missing), or when the setting is off. Also suppressed
+  // on chips that already have a conflict popover — the conflict-popover/
+  // thesaurus-popover swap is logged as a known bug under "Known Bugs" in
+  // docs/plan.md; until that's fixed the thesaurus is unreachable on
+  // conflict chips.
+  const thesaurusAvailable = !readOnly && thesaurusEnabled && (onReplace || onAddTriggers) && !conflictEntries;
+  const thesaurusHoverTimerRef       = useRef(null);
+  const thesaurusLongPressTimerRef   = useRef(null);
+  const thesaurusSuppressNextClickRef = useRef(false);
+
+  const popoverOpen   = activePopover === 'conflict';
+  const thesaurusOpen = activePopover === 'thesaurus';
+
+  function startEdit() {
+    setDraft(label);
+    setEditing(true);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function commitEdit() {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== label) onRename?.(trimmed);
+    setEditing(false);
+  }
+
+  function onKeyDown(e) {
+    if (e.key === 'Enter')  commitEdit();
+    if (e.key === 'Escape') setEditing(false);
+  }
+
+  function openPopover()  {
+    clearTimeout(hoverTimer.current);
+    // Compute viewport-relative position of the chip so the portal popover
+    // (rendered at document.body, escaping any overflow:hidden ancestors)
+    // can be pinned just above the chip regardless of scroll position.
+    const el = chipRef.current;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      setPopoverPos({
+        left:   Math.min(rect.left, window.innerWidth - 190), // keep within viewport
+        bottom: window.innerHeight - rect.top + 6,
+      });
+    }
+    setActivePopover('conflict');
+  }
+  function closePopover() {
+    hoverTimer.current = setTimeout(() => {
+      setActivePopover((p) => (p === 'conflict' ? null : p));
+    }, 120);
+  }
+  function keepPopover()  {
+    clearTimeout(hoverTimer.current);
+  }
+
+  // Thesaurus popover handlers — share the activePopover state so a switch
+  // from one to the other is a single atomic state change with no in-between.
+  function openThesaurusPopover()  { setActivePopover('thesaurus'); }
+  function closeThesaurusPopover() {
+    setActivePopover((p) => (p === 'thesaurus' ? null : p));
+  }
+
+  // Desktop hover. Skipped when a conflict popover is in play (the conflict UI
+  // wins on hover for chips that have one); long-press still works on touch.
+  function onChipMouseEnter() {
+    if (!thesaurusAvailable || isMobile || conflictEntries) return;
+    clearTimeout(thesaurusHoverTimerRef.current);
+    thesaurusHoverTimerRef.current = setTimeout(openThesaurusPopover, THESAURUS_HOVER_OPEN_MS);
+  }
+  function onChipMouseLeave() {
+    if (!thesaurusAvailable || isMobile || conflictEntries) return;
+    clearTimeout(thesaurusHoverTimerRef.current);
+    thesaurusHoverTimerRef.current = setTimeout(closeThesaurusPopover, THESAURUS_HOVER_CLOSE_MS);
+  }
+  function onThesaurusPopoverMouseEnter() {
+    clearTimeout(thesaurusHoverTimerRef.current);
+  }
+  function onThesaurusPopoverMouseLeave() {
+    if (isMobile) return;
+    thesaurusHoverTimerRef.current = setTimeout(closeThesaurusPopover, THESAURUS_HOVER_CLOSE_MS);
+  }
+
+  // Mobile long-press — works regardless of conflict state. Suppresses the
+  // synthetic click on release so the chip's tap-to-edit doesn't fire.
+  function onChipPointerDown() {
+    if (!thesaurusAvailable || !isMobile) return;
+    clearTimeout(thesaurusLongPressTimerRef.current);
+    thesaurusLongPressTimerRef.current = setTimeout(() => {
+      thesaurusSuppressNextClickRef.current = true;
+      openThesaurusPopover();
+      setTimeout(() => { thesaurusSuppressNextClickRef.current = false; }, 600);
+    }, THESAURUS_LONG_PRESS_MS);
+  }
+  function onChipPointerUp() {
+    if (!isMobile) return;
+    clearTimeout(thesaurusLongPressTimerRef.current);
+  }
+
+  function onThesaurusReplace(newWord) {
+    if (onReplace) onReplace(newWord);
+  }
+  function onThesaurusAdd(newWords) {
+    if (onAddTriggers) onAddTriggers(newWords);
+  }
+
+  // Mobile: hover events fire on the first tap but mouseleave never fires, so
+  // the popover gets stuck open. Dismiss when the user taps anywhere outside
+  // both the chip and the popover.
+  useEffect(() => {
+    if (!popoverOpen || !isMobile) return;
+    function onPointer(e) {
+      if (chipRef.current?.contains(e.target))    return;
+      if (popoverRef.current?.contains(e.target)) return;
+      setActivePopover((p) => (p === 'conflict' ? null : p));
+    }
+    document.addEventListener('pointerdown', onPointer);
+    return () => document.removeEventListener('pointerdown', onPointer);
+  }, [popoverOpen, isMobile]);
+
+  function navigateToEntry(entry) {
+    setActivePopover(null);
+    // Mobile cross-book: open the peek overlay instead of swapping. Keeps the
+    // user anchored in the active book — they can copy or explicitly visit
+    // from inside the overlay.
+    if (isMobile && entry.isOtherBook) {
+      setPeekReferenceEntryId(entry.id);
+      return;
+    }
+    // Cross-book conflict on desktop: target entry lives in the reference
+    // book. Swap so it becomes active before scrolling — only the active
+    // panel renders entry DOM ids (`#entry-<id>`), so navigation only
+    // resolves on that side.
+    if (entry.isOtherBook) swapReference();
+    setSearchFocusedId(entry.id);
+    // Defer scroll until after React re-renders the card into its expanded state
+    requestAnimationFrame(() => {
+      document.getElementById(`entry-${entry.id}`)?.scrollIntoView({ behavior: reducedMotionScrollBehavior(), block: 'nearest' });
+    });
+  }
+
+  const borderStyle = ringColor
+    ? { boxShadow: `0 0 0 2px ${ringColor}` }
+    : color
+      ? { borderColor: color }
+      : {};
+
+  // Suppress the synthetic click that follows a long-press release so the
+  // chip-label tap-to-edit doesn't fire after the user opened the thesaurus.
+  function maybeStartEdit() {
+    if (thesaurusSuppressNextClickRef.current) {
+      thesaurusSuppressNextClickRef.current = false;
+      return;
+    }
+    startEdit();
+  }
+
+  // Combined hover handlers so a chip with both conflict and thesaurus
+  // potential routes hover to the right popover (conflict wins).
+  const handleMouseEnter = (e) => {
+    if (conflictEntries) openPopover();
+    else                 onChipMouseEnter(e);
+  };
+  const handleMouseLeave = (e) => {
+    if (conflictEntries) closePopover();
+    else                 onChipMouseLeave(e);
+  };
+
+  return (
+    <span
+      ref={chipRef}
+      className="chip"
+      style={borderStyle}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onPointerDown={onChipPointerDown}
+      onPointerUp={onChipPointerUp}
+      onPointerCancel={onChipPointerUp}
+      onContextMenu={(e) => { if (isMobile && thesaurusAvailable) e.preventDefault(); }}
+    >
+      {editing ? (
+        <input
+          ref={inputRef}
+          className="chip-input"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitEdit}
+          onKeyDown={onKeyDown}
+        />
+      ) : (
+        <span
+          className="chip-label"
+          onClick={readOnly ? undefined : (isMobile ? maybeStartEdit : undefined)}
+          onDoubleClick={readOnly ? undefined : (isMobile ? undefined : startEdit)}
+          {...(highlight
+            ? {
+                dangerouslySetInnerHTML: {
+                  __html: escapeHtml(label).replace(
+                    new RegExp(`(${escapeRegex(escapeHtml(highlight))})`, 'gi'),
+                    '<mark class="search-mark">$1</mark>'
+                  ),
+                },
+              }
+            : {})}
+        >
+          {highlight ? undefined : label}
+        </span>
+      )}
+      {!readOnly && (
+        <button className="chip-delete touch-floor" onClick={onDelete} title="Remove trigger">×</button>
+      )}
+
+      {/* Conflict popover — rendered via portal to escape overflow:hidden on .entry-card */}
+      {conflictEntries && popoverOpen && createPortal(
+        <div
+          className="chip-conflict-popover"
+          style={{ position: 'fixed', left: popoverPos.left, bottom: popoverPos.bottom }}
+          ref={popoverRef}
+          onMouseEnter={keepPopover}
+          onMouseLeave={closePopover}
+        >
+          <div className="chip-conflict-popover-title">
+            {acknowledged ? 'Shared with' : 'Conflict with'}
+          </div>
+          <div className="chip-conflict-entries">
+            {(() => {
+              const sameBook  = conflictEntries.filter((e) => !e.isOtherBook);
+              const otherBook = conflictEntries.filter((e) =>  e.isOtherBook);
+              // Only section when the conflict actually spans both books.
+              const sectioned = sameBook.length > 0 && otherBook.length > 0;
+              const renderRow = (e) => (
+                <button
+                  key={e.id}
+                  className="chip-conflict-entry"
+                  onClick={() => navigateToEntry(e)}
+                >
+                  <TypeColorDot type={e.type} />
+                  <span className="chip-conflict-entry-name">{e.name || '(unnamed)'}</span>
+                </button>
+              );
+              if (!sectioned) {
+                return conflictEntries.map(renderRow);
+              }
+              return (
+                <>
+                  <div className="chip-conflict-section-header">This lorebook</div>
+                  {sameBook.map(renderRow)}
+                  <div className="chip-conflict-section-header">Reference lorebook</div>
+                  {otherBook.map(renderRow)}
+                </>
+              );
+            })()}
+          </div>
+          <div className="chip-conflict-popover-divider" />
+          {onAllow && (
+            <button className="chip-conflict-action chip-conflict-action--allow" onClick={onAllow}>
+              Allow overlap
+            </button>
+          )}
+          {onRevoke && (
+            <button className="chip-conflict-action chip-conflict-action--revoke" onClick={onRevoke}>
+              Revoke
+            </button>
+          )}
+        </div>,
+        document.body
+      )}
+
+      {thesaurusAvailable && thesaurusOpen && (
+        <ThesaurusPopover
+          word={label}
+          anchorEl={chipRef.current}
+          existingTriggers={existingTriggers || []}
+          sourceWord={label}
+          onReplace={onReplace ? onThesaurusReplace : undefined}
+          onAddTriggers={onAddTriggers ? onThesaurusAdd : undefined}
+          onClose={closeThesaurusPopover}
+          onMouseEnter={onThesaurusPopoverMouseEnter}
+          onMouseLeave={onThesaurusPopoverMouseLeave}
+        />
+      )}
+    </span>
+  );
+}

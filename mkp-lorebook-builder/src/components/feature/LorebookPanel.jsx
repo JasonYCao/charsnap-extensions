@@ -1,0 +1,231 @@
+// Lorebook list as a first-class panel — always-expanded version of the switcher dropdown for the menu panel
+import { useState, useRef, useEffect } from 'react';
+import { useSortedLorebooks }   from '../../hooks/use-sorted-lorebooks.js';
+import { useLorebook }          from '../../hooks/use-lorebook.js';
+import { useExport }            from '../../hooks/use-export.js';
+import { useMobile }            from '../../hooks/use-mobile.js';
+import { useUi }                from '../../hooks/use-ui.js';
+import { useSettings }          from '../../hooks/use-settings.js';
+import { useReferenceLorebook } from '../../hooks/use-reference-lorebook.js';
+import { useReferenceChooser }  from '../../hooks/use-reference-chooser.js';
+import { LOREBOOK_SORT_OPTIONS } from '../../constants/sort-modes.js';
+
+export function LorebookPanel() {
+  // This panel is always mounted (MenuPanel keeps its sections alive so their
+  // state survives a tab switch), so it can't use mounting as the "list opened"
+  // signal the way TitleMenu does — it has to watch activeMenuPanel instead.
+  // That matters here more than anywhere: this is the one surface that stays on
+  // screen through a switch, so a live re-sort would rearrange the list under
+  // the pointer at the exact moment it was clicked.
+  const panelOpen = useUi((s) => s.activeMenuPanel) === 'lorebooks';
+  const { lorebookSort, setLorebookSort } = useSettings();
+  const { items, sorted, createLorebook, switchLorebook, deleteLorebook, renameLorebookById } =
+    useSortedLorebooks({ mode: lorebookSort, open: panelOpen });
+  const [pendingId, setPendingId]             = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [editingId, setEditingId]             = useState(null);
+  const [editingName, setEditingName]         = useState('');
+  const editInputRef = useRef(null);
+  const { activeLorebookId, activeLorebook } = useLorebook();
+  const { exportJson: doExportJson, exportTxt: doExportTxt, defaultExportFilename } = useExport();
+  const isMobile           = useMobile();
+  const setActiveMenuPanel = useUi((s) => s.setActiveMenuPanel);
+  const { referenceLorebook, crosstalkEnabled } = useReferenceLorebook();
+  const { openChooser: openReferenceChooser }   = useReferenceChooser();
+
+  // On mobile the menu is a full-screen overlay, so selecting a lorebook should
+  // drop the user back to the entries they just switched to.
+  function closeMenuIfMobile() {
+    if (isMobile) setActiveMenuPanel(null);
+  }
+
+  useEffect(() => {
+    if (editingId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingId]);
+
+  function requestSwitch(id) {
+    if (id === activeLorebookId) return;
+    if (activeLorebook?.entries?.length > 0) {
+      setPendingId(id);
+    } else {
+      switchLorebook(id);
+      closeMenuIfMobile();
+    }
+  }
+
+  function doSwitch() {
+    if (pendingId) switchLorebook(pendingId);
+    setPendingId(null);
+    closeMenuIfMobile();
+  }
+
+  function downloadJson() {
+    if (activeLorebook) {
+      const safe = defaultExportFilename(activeLorebook.name);
+      doExportJson(activeLorebook, `${safe}.json`);
+    }
+    doSwitch();
+  }
+
+  function downloadTxt() {
+    if (activeLorebook) {
+      const safe = defaultExportFilename(activeLorebook.name);
+      doExportTxt(activeLorebook, `${safe}.txt`);
+    }
+    doSwitch();
+  }
+
+  function handleDeleteClick(e, id) {
+    e.stopPropagation();
+    setConfirmDeleteId(id);
+  }
+
+  function startEditing(e, item) {
+    e.stopPropagation();
+    setEditingId(item.id);
+    setEditingName(item.name || '');
+  }
+
+  function commitRename() {
+    if (editingId) {
+      renameLorebookById(editingId, editingName);
+    }
+    setEditingId(null);
+  }
+
+  function onEditKeyDown(e) {
+    if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+    if (e.key === 'Escape') { setEditingId(null); }
+  }
+
+  const pendingName = pendingId
+    ? (items.find((i) => i.id === pendingId)?.name || '(unnamed)')
+    : '';
+
+  const confirmDeleteName = confirmDeleteId
+    ? (items.find((i) => i.id === confirmDeleteId)?.name || '(unnamed)')
+    : '';
+
+  return (
+    <div className="lorebook-panel">
+      {/* One of the three doors into the reference chooser. It used to be a
+          toggle sitting above a `<select>` that only rendered on mobile — the
+          combination #123 was reported against, since mobile had no route to
+          this panel at all. Now it says what it does and opens the one surface
+          that does it. */}
+      <button
+        className={`footer-btn footer-btn--toggle lorebook-panel-toggle${crosstalkEnabled ? ' footer-btn--active' : ''}`}
+        onClick={openReferenceChooser}
+      >
+        {crosstalkEnabled
+          ? `Reference: ${referenceLorebook?.name || '(unnamed)'}`
+          : 'Pair a reference lorebook…'}
+      </button>
+
+      {pendingId && (
+        <div className="lorebook-panel-prompt">
+          <div className="switcher-prompt-text">
+            Switch to &ldquo;{pendingName}&rdquo;? Save current lorebook first?
+          </div>
+          <div className="switcher-prompt-actions">
+            <button className="switcher-prompt-btn" onClick={downloadJson}>⬇ JSON</button>
+            <button className="switcher-prompt-btn" onClick={downloadTxt}>⬇ TXT</button>
+            <button className="switcher-prompt-btn" onClick={doSwitch}>Switch anyway</button>
+            <button className="switcher-prompt-btn switcher-prompt-btn--cancel" onClick={() => setPendingId(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Same control as the title menu's column head — one preference, both
+          surfaces, set wherever you happen to be looking at the list. */}
+      {items.length > 1 && (
+        <div className="lorebook-panel-sort" role="group" aria-label="Sort lorebooks">
+          {LOREBOOK_SORT_OPTIONS.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              className={`tm-sort-btn${lorebookSort === opt.id ? ' tm-sort-btn--on' : ''}`}
+              onClick={() => setLorebookSort(opt.id)}
+              title={opt.title}
+              aria-pressed={lorebookSort === opt.id}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="switcher-list">
+        {items.length === 0 && (
+          <div className="switcher-empty">No lorebooks yet</div>
+        )}
+        {sorted.map((item) => (
+          <div key={item.id}>
+            <div
+              className={`switcher-item${item.isActive ? ' switcher-item--active' : ''}`}
+              onClick={() => { if (editingId !== item.id) requestSwitch(item.id); }}
+            >
+              {editingId === item.id ? (
+                <input
+                  ref={editInputRef}
+                  className="switcher-rename-input"
+                  value={editingName}
+                  onChange={(e) => setEditingName(e.target.value)}
+                  onBlur={commitRename}
+                  onKeyDown={onEditKeyDown}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <span
+                  className="switcher-name"
+                  title="Double-click to rename"
+                  onDoubleClick={(e) => startEditing(e, item)}
+                >
+                  {item.name || '(unnamed)'}
+                </span>
+              )}
+              <span className="switcher-time">{item.relativeTime}</span>
+              <button
+                className="switcher-delete"
+                onClick={(e) => handleDeleteClick(e, item.id)}
+                title="Delete lorebook"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Inline delete confirmation */}
+            {confirmDeleteId === item.id && (
+              <div className="switcher-confirm-delete" onClick={(e) => e.stopPropagation()}>
+                <span className="switcher-confirm-label">
+                  Delete &ldquo;{confirmDeleteName}&rdquo;?
+                </span>
+                <div className="switcher-confirm-actions">
+                  <button
+                    className="switcher-confirm-btn switcher-confirm-btn--danger"
+                    onClick={() => { deleteLorebook(confirmDeleteId); setConfirmDeleteId(null); }}
+                  >
+                    Yes
+                  </button>
+                  <button
+                    className="switcher-confirm-btn"
+                    onClick={() => setConfirmDeleteId(null)}
+                  >
+                    No
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <button className="switcher-new" onClick={createLorebook}>
+        + New lorebook
+      </button>
+    </div>
+  );
+}

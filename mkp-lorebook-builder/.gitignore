@@ -1,0 +1,35 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Loose feature screenshots — scratch output, rebuild with verify/screenshots.mjs
+screenshots/*.png
+
+# public/screenshots/<release>/ is deliberately NOT ignored: the in-app feature
+# tour serves those images, so they have to be in the build. They are generated
+# too, but a release's set is captured once and then frozen — the 0.9.0 images
+# stay correct for 0.9.0 however far the UI moves on.
+
+# Generated stress books — rebuild with fixtures/build-stress-book.mjs
+verify/.tmp/
